@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QGraphicsScene>
+#include <QSqlTableModel>
 
 class QGraphicsView;
 class QPushButton;
@@ -25,8 +26,11 @@ private:
     QGraphicsScene *scene;
     QGraphicsView *view;
     QTableView *tableView;
+    QSqlTableModel *model; // Модель для базы данных
 
     void setupUI();
+    void setupDatabase(); // Новая функция инициализации БД
+    void addShapeToDb(const QString &type); // Добавление записи в БД
 };
 
 #endif // MAINWINDOW_H
