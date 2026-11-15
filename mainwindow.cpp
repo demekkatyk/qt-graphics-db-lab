@@ -14,7 +14,45 @@
 #include <QSqlTableModel>
 #include <QMessageBox>
 #include <QDebug>
+#include <QStyledItemDelegate>
+#include <QPainter>
 
+// ==========================================
+// КАСТОМНЫЙ ДЕЛЕГАТ ДЛЯ ОТРИСОВКИ ИКОНОК
+// ==========================================
+class IconDelegate : public QStyledItemDelegate {
+public:
+    IconDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyledItemDelegate::paint(painter, option, index);
+        
+        int count = index.data().toInt();
+        if (count <= 0) return;
+
+        int iconCount = 0;
+        if (count >= 1 && count <= 3) iconCount = 1;
+        else if (count >= 4 && count <= 10) iconCount = 2;
+        else if (count > 10) iconCount = 3;
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        QRect rect = option.rect;
+        int startX = rect.right() - 20;
+        
+        for (int i = 0; i < iconCount; ++i) {
+            QRect iconRect(startX - (i * 20), rect.top() + 5, 15, 15);
+            painter->setBrush(Qt::blue);
+            painter->setPen(Qt::black);
+            painter->drawEllipse(iconRect);
+        }
+        painter->restore();
+    }
+};
+
+// ==========================================
+// MAIN WINDOW
+// ==========================================
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -66,7 +104,6 @@ void MainWindow::setupUI()
 
 void MainWindow::setupDatabase()
 {
-    // Подключаемся к SQLite (файл создастся в папке проекта)
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
     db.setDatabaseName("shapes.db");
 
@@ -75,59 +112,70 @@ void MainWindow::setupDatabase()
         return;
     }
 
-    // Создаем таблицу, если её нет
     QSqlQuery query;
-    query.exec("CREATE TABLE IF NOT EXISTS shapes ("
+    // ВНИМАНИЕ: Для лабораторной мы каждый раз создаем таблицу заново (DROP), 
+    // чтобы не было старых дублей при отладке. 
+    query.exec("DROP TABLE IF EXISTS shapes");
+    query.exec("CREATE TABLE shapes ("
                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-               "type TEXT, "
+               "type TEXT UNIQUE, "
                "connections TEXT, "
                "count INTEGER)");
 
-    // Настраиваем модель для отображения таблицы
+    // Сразу добавляем три базовые строки
+    query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Прямоугольник', '', 0)");
+    query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Эллипс', '', 0)");
+    query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Многоугольник', '', 0)");
+
     model = new QSqlTableModel(this, db);
     model->setTable("shapes");
-    model->select(); // Загружаем данные из БД
+    model->select();
 
-    // Настраиваем заголовки колонок
     model->setHeaderData(0, Qt::Horizontal, "ID");
     model->setHeaderData(1, Qt::Horizontal, "Тип фигуры");
     model->setHeaderData(2, Qt::Horizontal, "Связи");
     model->setHeaderData(3, Qt::Horizontal, "Кол-во");
 
     tableView->setModel(model);
+    tableView->setItemDelegateForColumn(3, new IconDelegate(this));
+    tableView->setColumnWidth(0, 50);
+    tableView->setColumnWidth(1, 150);
+    tableView->setColumnWidth(2, 150);
 }
 
 void MainWindow::addShapeToDb(const QString &type)
 {
     QSqlQuery query;
-    query.prepare("INSERT INTO shapes (type, connections, count) VALUES (:type, :conn, :count)");
+    query.prepare("UPDATE shapes SET count = count + 1 WHERE type = :type");
     query.bindValue(":type", type);
-    query.bindValue(":conn", ""); // пока нет связей
-    query.bindValue(":count", 1);
     
-    if (!query.exec()) {
-        qDebug() << "Ошибка добавления в БД:" << query.lastError().text();
+    if (query.exec()) {
+        model->select();
     } else {
-        model->select(); // Обновляем таблицу на экране
+        qDebug() << "Ошибка обновления БД:" << query.lastError().text();
     }
 }
 
 void MainWindow::addRectangle()
 {
-    scene->addRect(50, 50, 100, 60, QPen(Qt::black), QBrush(Qt::cyan));
+    // Располагаем фигуры со сдвигом, чтобы они не накладывались друг на друга
+    int offset = scene->items().size() * 10;
+    scene->addRect(50 + offset, 50 + offset, 100, 60, QPen(Qt::black), QBrush(Qt::cyan));
     addShapeToDb("Прямоугольник");
 }
 
 void MainWindow::addEllipse()
 {
-    scene->addEllipse(100, 100, 80, 80, QPen(Qt::black), QBrush(Qt::yellow));
+    int offset = scene->items().size() * 10;
+    scene->addEllipse(100 + offset, 100 + offset, 80, 80, QPen(Qt::black), QBrush(Qt::yellow));
     addShapeToDb("Эллипс");
 }
 
 void MainWindow::addPolygon()
 {
+    int offset = scene->items().size() * 10;
     QPolygonF triangle;
-    triangle << QPointF(200, 50) << QPointF(250, 150) << QPointF(150, 150);
+    triangle << QPointF(200 + offset, 50 + offset) << QPointF(250 + offset, 150 + offset) << QPointF(150 + offset, 150 + offset);
     scene->addPolygon(triangle, QPen(Qt::black), QBrush(Qt::magenta));
     addShapeToDb("Многоугольник");
 }

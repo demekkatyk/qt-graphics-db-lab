@@ -26,11 +26,11 @@ private:
     QGraphicsScene *scene;
     QGraphicsView *view;
     QTableView *tableView;
-    QSqlTableModel *model; // Модель для базы данных
+    QSqlTableModel *model;
 
     void setupUI();
-    void setupDatabase(); // Новая функция инициализации БД
-    void addShapeToDb(const QString &type); // Добавление записи в БД
+    void setupDatabase();
+    void addShapeToDb(const QString &type);
 };
 
 #endif // MAINWINDOW_H
