@@ -1,0 +1,19 @@
+# Build directories
+build/
+*.o
+*.so
+*.a
+*.exe
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+# Qt Creator files
+*.pro.user
+*.pro.user.*
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
