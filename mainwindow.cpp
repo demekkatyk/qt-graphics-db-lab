@@ -20,10 +20,10 @@
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QLabel>
-#include <QFormLayout>
+#include <QItemSelectionModel>
 
 // ==========================================
-// КАСТОМНЫЙ ДЕЛЕГАТ ДЛЯ ОТРИСОВКИ ИКОНОК
+// КАСТОМНЫЙ ДЕЛЕГАТ
 // ==========================================
 class IconDelegate : public QStyledItemDelegate {
 public:
@@ -72,7 +72,7 @@ void MainWindow::setupUI()
     QWidget *centralWidget = new QWidget(this);
     QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
 
-    // --- Левая панель с кнопками ---
+    // --- Левая панель ---
     QVBoxLayout *leftPanel = new QVBoxLayout();
     QPushButton *btnRect = new QPushButton("Прямоугольник");
     QPushButton *btnEllipse = new QPushButton("Эллипс");
@@ -83,7 +83,7 @@ void MainWindow::setupUI()
     leftPanel->addWidget(btnPolygon);
     leftPanel->addStretch();
 
-    // --- Правая панель (сцена + фильтры + таблица) ---
+    // --- Правая панель ---
     QVBoxLayout *rightPanel = new QVBoxLayout();
     
     scene = new QGraphicsScene(this);
@@ -91,16 +91,12 @@ void MainWindow::setupUI()
     view->setRenderHint(QPainter::Antialiasing);
     view->setMinimumHeight(300);
 
-    // --- ПАНЕЛЬ ФИЛЬТРАЦИИ ---
     QHBoxLayout *filterLayout = new QHBoxLayout();
-    
     typeFilter = new QComboBox();
     typeFilter->addItems({"Все типы", "Прямоугольник", "Эллипс", "Многоугольник"});
-    
     countFilter = new QSpinBox();
     countFilter->setRange(0, 1000);
     countFilter->setPrefix("Кол-во >= ");
-    
     idFilter = new QLineEdit();
     idFilter->setPlaceholderText("Поиск по ID...");
 
@@ -111,10 +107,14 @@ void MainWindow::setupUI()
 
     tableView = new QTableView();
     tableView->horizontalHeader()->setStretchLastSection(true);
+    tableView->setSelectionBehavior(QAbstractItemView::SelectRows); // Выделяем строки целиком
+
+    btnDelete = new QPushButton("Удалить выбранное");
 
     rightPanel->addWidget(view, 3);
-    rightPanel->addLayout(filterLayout); // вставляем фильтры
+    rightPanel->addLayout(filterLayout);
     rightPanel->addWidget(tableView, 2);
+    rightPanel->addWidget(btnDelete); // Кнопка удаления под таблицей
 
     mainLayout->addLayout(leftPanel, 1);
     mainLayout->addLayout(rightPanel, 4);
@@ -126,11 +126,10 @@ void MainWindow::setupUI()
     connect(btnRect, &QPushButton::clicked, this, &MainWindow::addRectangle);
     connect(btnEllipse, &QPushButton::clicked, this, &MainWindow::addEllipse);
     connect(btnPolygon, &QPushButton::clicked, this, &MainWindow::addPolygon);
-
-    // Подключаем фильтры к слоту
     connect(typeFilter, &QComboBox::currentTextChanged, this, &MainWindow::applyFilter);
     connect(countFilter, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::applyFilter);
     connect(idFilter, &QLineEdit::textChanged, this, &MainWindow::applyFilter);
+    connect(btnDelete, &QPushButton::clicked, this, &MainWindow::deleteSelected);
 }
 
 void MainWindow::setupDatabase()
@@ -179,7 +178,7 @@ void MainWindow::addShapeToDb(const QString &type)
     
     if (query.exec()) {
         model->select();
-        applyFilter(); // Применяем фильтр заново после обновления
+        applyFilter();
     } else {
         qDebug() << "Ошибка обновления БД:" << query.lastError().text();
     }
@@ -196,12 +195,10 @@ void MainWindow::applyFilter()
     if (type != "Все типы") {
         filterStr += QString("type = '%1' ").arg(type);
     }
-
     if (minCount > 0) {
         if (!filterStr.isEmpty()) filterStr += "AND ";
         filterStr += QString("count >= %1 ").arg(minCount);
     }
-
     if (!idText.isEmpty()) {
         if (!filterStr.isEmpty()) filterStr += "AND ";
         filterStr += QString("id = %1").arg(idText.toInt());
@@ -211,6 +208,33 @@ void MainWindow::applyFilter()
     model->select();
 }
 
+void MainWindow::deleteSelected()
+{
+    // Получаем выделенные строки
+    QModelIndexList selected = tableView->selectionModel()->selectedRows();
+    if (selected.isEmpty()) {
+        QMessageBox::warning(this, "Внимание", "Выберите строку для удаления!");
+        return;
+    }
+
+    int row = selected.first().row();
+    int id = model->data(model->index(row, 0)).toInt();
+
+    // Удаляем из БД
+    QSqlQuery query;
+    query.prepare("DELETE FROM shapes WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (query.exec()) {
+        model->select();
+        applyFilter();
+        QMessageBox::information(this, "Успех", "Запись удалена из базы данных.");
+    } else {
+        QMessageBox::critical(this, "Ошибка", "Не удалось удалить запись: " + query.lastError().text());
+    }
+}
+
+// (Методы addRectangle, addEllipse, addPolygon остаются без изменений)
 void MainWindow::addRectangle()
 {
     int offset = scene->items().size() * 10;

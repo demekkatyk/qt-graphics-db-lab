@@ -24,7 +24,8 @@ private slots:
     void addRectangle();
     void addEllipse();
     void addPolygon();
-    void applyFilter(); // Новый слот для фильтрации
+    void applyFilter();
+    void deleteSelected(); // Новый слот для удаления
 
 private:
     QGraphicsScene *scene;
@@ -32,10 +33,10 @@ private:
     QTableView *tableView;
     QSqlTableModel *model;
 
-    // Виджеты для фильтрации
     QComboBox *typeFilter;
     QSpinBox *countFilter;
     QLineEdit *idFilter;
+    QPushButton *btnDelete; // Кнопка удаления
 
     void setupUI();
     void setupDatabase();
