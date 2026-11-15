@@ -25,7 +25,8 @@ private slots:
     void addEllipse();
     void addPolygon();
     void applyFilter();
-    void deleteSelected(); // Новый слот для удаления
+    void deleteSelected();
+    void linkSelected(); // Новый слот для связи
 
 private:
     QGraphicsScene *scene;
@@ -36,11 +37,13 @@ private:
     QComboBox *typeFilter;
     QSpinBox *countFilter;
     QLineEdit *idFilter;
-    QPushButton *btnDelete; // Кнопка удаления
+    QPushButton *btnDelete;
+    QPushButton *btnLink; // Кнопка связи
 
     void setupUI();
     void setupDatabase();
     void addShapeToDb(const QString &type);
+    void updateLinksInDb(int id1, int id2); // Обновление связей в БД
 };
 
 #endif // MAINWINDOW_H

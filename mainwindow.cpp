@@ -7,6 +7,7 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsPolygonItem>
+#include <QGraphicsLineItem>
 #include <QHeaderView>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -23,28 +24,23 @@
 #include <QItemSelectionModel>
 
 // ==========================================
-// КАСТОМНЫЙ ДЕЛЕГАТ
+// ДЕЛЕГАТ
 // ==========================================
 class IconDelegate : public QStyledItemDelegate {
 public:
     IconDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
-
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         QStyledItemDelegate::paint(painter, option, index);
-        
         int count = index.data().toInt();
         if (count <= 0) return;
-
         int iconCount = 0;
         if (count >= 1 && count <= 3) iconCount = 1;
         else if (count >= 4 && count <= 10) iconCount = 2;
         else if (count > 10) iconCount = 3;
-
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
         QRect rect = option.rect;
         int startX = rect.right() - 20;
-        
         for (int i = 0; i < iconCount; ++i) {
             QRect iconRect(startX - (i * 20), rect.top() + 5, 15, 15);
             painter->setBrush(Qt::blue);
@@ -72,7 +68,6 @@ void MainWindow::setupUI()
     QWidget *centralWidget = new QWidget(this);
     QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
 
-    // --- Левая панель ---
     QVBoxLayout *leftPanel = new QVBoxLayout();
     QPushButton *btnRect = new QPushButton("Прямоугольник");
     QPushButton *btnEllipse = new QPushButton("Эллипс");
@@ -83,7 +78,6 @@ void MainWindow::setupUI()
     leftPanel->addWidget(btnPolygon);
     leftPanel->addStretch();
 
-    // --- Правая панель ---
     QVBoxLayout *rightPanel = new QVBoxLayout();
     
     scene = new QGraphicsScene(this);
@@ -107,14 +101,20 @@ void MainWindow::setupUI()
 
     tableView = new QTableView();
     tableView->horizontalHeader()->setStretchLastSection(true);
-    tableView->setSelectionBehavior(QAbstractItemView::SelectRows); // Выделяем строки целиком
+    tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tableView->setSelectionMode(QAbstractItemView::MultiSelection); // Разрешаем выбирать 2+ строки
 
     btnDelete = new QPushButton("Удалить выбранное");
+    btnLink = new QPushButton("Связать выбранные"); // Кнопка связи
+
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(btnDelete);
+    btnLayout->addWidget(btnLink);
 
     rightPanel->addWidget(view, 3);
     rightPanel->addLayout(filterLayout);
     rightPanel->addWidget(tableView, 2);
-    rightPanel->addWidget(btnDelete); // Кнопка удаления под таблицей
+    rightPanel->addLayout(btnLayout);
 
     mainLayout->addLayout(leftPanel, 1);
     mainLayout->addLayout(rightPanel, 4);
@@ -130,6 +130,7 @@ void MainWindow::setupUI()
     connect(countFilter, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::applyFilter);
     connect(idFilter, &QLineEdit::textChanged, this, &MainWindow::applyFilter);
     connect(btnDelete, &QPushButton::clicked, this, &MainWindow::deleteSelected);
+    connect(btnLink, &QPushButton::clicked, this, &MainWindow::linkSelected);
 }
 
 void MainWindow::setupDatabase()
@@ -175,12 +176,9 @@ void MainWindow::addShapeToDb(const QString &type)
     QSqlQuery query;
     query.prepare("UPDATE shapes SET count = count + 1 WHERE type = :type");
     query.bindValue(":type", type);
-    
     if (query.exec()) {
         model->select();
         applyFilter();
-    } else {
-        qDebug() << "Ошибка обновления БД:" << query.lastError().text();
     }
 }
 
@@ -191,10 +189,7 @@ void MainWindow::applyFilter()
     QString idText = idFilter->text();
 
     QString filterStr = "";
-
-    if (type != "Все типы") {
-        filterStr += QString("type = '%1' ").arg(type);
-    }
+    if (type != "Все типы") filterStr += QString("type = '%1' ").arg(type);
     if (minCount > 0) {
         if (!filterStr.isEmpty()) filterStr += "AND ";
         filterStr += QString("count >= %1 ").arg(minCount);
@@ -203,24 +198,18 @@ void MainWindow::applyFilter()
         if (!filterStr.isEmpty()) filterStr += "AND ";
         filterStr += QString("id = %1").arg(idText.toInt());
     }
-
     model->setFilter(filterStr);
     model->select();
 }
 
 void MainWindow::deleteSelected()
 {
-    // Получаем выделенные строки
     QModelIndexList selected = tableView->selectionModel()->selectedRows();
-    if (selected.isEmpty()) {
-        QMessageBox::warning(this, "Внимание", "Выберите строку для удаления!");
-        return;
-    }
+    if (selected.isEmpty()) return;
 
     int row = selected.first().row();
     int id = model->data(model->index(row, 0)).toInt();
 
-    // Удаляем из БД
     QSqlQuery query;
     query.prepare("DELETE FROM shapes WHERE id = :id");
     query.bindValue(":id", id);
@@ -228,13 +217,52 @@ void MainWindow::deleteSelected()
     if (query.exec()) {
         model->select();
         applyFilter();
-        QMessageBox::information(this, "Успех", "Запись удалена из базы данных.");
-    } else {
-        QMessageBox::critical(this, "Ошибка", "Не удалось удалить запись: " + query.lastError().text());
     }
 }
 
-// (Методы addRectangle, addEllipse, addPolygon остаются без изменений)
+void MainWindow::linkSelected()
+{
+    QModelIndexList selected = tableView->selectionModel()->selectedRows();
+    if (selected.size() != 2) {
+        QMessageBox::warning(this, "Внимание", "Выделите ровно ДВЕ строки в таблице для создания связи!");
+        return;
+    }
+
+    int row1 = selected[0].row();
+    int row2 = selected[1].row();
+
+    int id1 = model->data(model->index(row1, 0)).toInt();
+    int id2 = model->data(model->index(row2, 0)).toInt();
+
+    updateLinksInDb(id1, id2);
+}
+
+void MainWindow::updateLinksInDb(int id1, int id2)
+{
+    QSqlQuery query;
+
+    // 1. Обновляем связи в БД (просто перезаписываем поле connections для обоих)
+    query.prepare("UPDATE shapes SET connections = :conn WHERE id = :id");
+    query.bindValue(":conn", QString::number(id2));
+    query.bindValue(":id", id1);
+    query.exec();
+
+    query.bindValue(":conn", QString::number(id1));
+    query.bindValue(":id", id2);
+    query.exec();
+
+    // 2. Обновляем таблицу
+    model->select();
+
+    // 3. Рисуем линию на холсте
+    // Чтобы нарисовать линию, нам нужны координаты. Так как мы их не храним, 
+    // нарисуем линию просто в произвольном месте (для демонстрации).
+    // В реальном проекте здесь нужно было бы брать координаты фигур.
+    scene->addLine(100, 100, 300, 300, QPen(Qt::red, 2));
+
+    QMessageBox::information(this, "Успех", "Связь между фигурами создана!");
+}
+
 void MainWindow::addRectangle()
 {
     int offset = scene->items().size() * 10;
