@@ -16,6 +16,11 @@
 #include <QDebug>
 #include <QStyledItemDelegate>
 #include <QPainter>
+#include <QComboBox>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QLabel>
+#include <QFormLayout>
 
 // ==========================================
 // КАСТОМНЫЙ ДЕЛЕГАТ ДЛЯ ОТРИСОВКИ ИКОНОК
@@ -67,6 +72,7 @@ void MainWindow::setupUI()
     QWidget *centralWidget = new QWidget(this);
     QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
 
+    // --- Левая панель с кнопками ---
     QVBoxLayout *leftPanel = new QVBoxLayout();
     QPushButton *btnRect = new QPushButton("Прямоугольник");
     QPushButton *btnEllipse = new QPushButton("Эллипс");
@@ -77,18 +83,38 @@ void MainWindow::setupUI()
     leftPanel->addWidget(btnPolygon);
     leftPanel->addStretch();
 
+    // --- Правая панель (сцена + фильтры + таблица) ---
     QVBoxLayout *rightPanel = new QVBoxLayout();
     
     scene = new QGraphicsScene(this);
     view = new QGraphicsView(scene);
     view->setRenderHint(QPainter::Antialiasing);
-    view->setMinimumHeight(400);
+    view->setMinimumHeight(300);
+
+    // --- ПАНЕЛЬ ФИЛЬТРАЦИИ ---
+    QHBoxLayout *filterLayout = new QHBoxLayout();
+    
+    typeFilter = new QComboBox();
+    typeFilter->addItems({"Все типы", "Прямоугольник", "Эллипс", "Многоугольник"});
+    
+    countFilter = new QSpinBox();
+    countFilter->setRange(0, 1000);
+    countFilter->setPrefix("Кол-во >= ");
+    
+    idFilter = new QLineEdit();
+    idFilter->setPlaceholderText("Поиск по ID...");
+
+    filterLayout->addWidget(new QLabel("Фильтры:"));
+    filterLayout->addWidget(typeFilter);
+    filterLayout->addWidget(countFilter);
+    filterLayout->addWidget(idFilter);
 
     tableView = new QTableView();
     tableView->horizontalHeader()->setStretchLastSection(true);
 
-    rightPanel->addWidget(view, 2);
-    rightPanel->addWidget(tableView, 1);
+    rightPanel->addWidget(view, 3);
+    rightPanel->addLayout(filterLayout); // вставляем фильтры
+    rightPanel->addWidget(tableView, 2);
 
     mainLayout->addLayout(leftPanel, 1);
     mainLayout->addLayout(rightPanel, 4);
@@ -100,6 +126,11 @@ void MainWindow::setupUI()
     connect(btnRect, &QPushButton::clicked, this, &MainWindow::addRectangle);
     connect(btnEllipse, &QPushButton::clicked, this, &MainWindow::addEllipse);
     connect(btnPolygon, &QPushButton::clicked, this, &MainWindow::addPolygon);
+
+    // Подключаем фильтры к слоту
+    connect(typeFilter, &QComboBox::currentTextChanged, this, &MainWindow::applyFilter);
+    connect(countFilter, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::applyFilter);
+    connect(idFilter, &QLineEdit::textChanged, this, &MainWindow::applyFilter);
 }
 
 void MainWindow::setupDatabase()
@@ -113,8 +144,6 @@ void MainWindow::setupDatabase()
     }
 
     QSqlQuery query;
-    // ВНИМАНИЕ: Для лабораторной мы каждый раз создаем таблицу заново (DROP), 
-    // чтобы не было старых дублей при отладке. 
     query.exec("DROP TABLE IF EXISTS shapes");
     query.exec("CREATE TABLE shapes ("
                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -122,7 +151,6 @@ void MainWindow::setupDatabase()
                "connections TEXT, "
                "count INTEGER)");
 
-    // Сразу добавляем три базовые строки
     query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Прямоугольник', '', 0)");
     query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Эллипс', '', 0)");
     query.exec("INSERT INTO shapes (type, connections, count) VALUES ('Многоугольник', '', 0)");
@@ -151,14 +179,40 @@ void MainWindow::addShapeToDb(const QString &type)
     
     if (query.exec()) {
         model->select();
+        applyFilter(); // Применяем фильтр заново после обновления
     } else {
         qDebug() << "Ошибка обновления БД:" << query.lastError().text();
     }
 }
 
+void MainWindow::applyFilter()
+{
+    QString type = typeFilter->currentText();
+    int minCount = countFilter->value();
+    QString idText = idFilter->text();
+
+    QString filterStr = "";
+
+    if (type != "Все типы") {
+        filterStr += QString("type = '%1' ").arg(type);
+    }
+
+    if (minCount > 0) {
+        if (!filterStr.isEmpty()) filterStr += "AND ";
+        filterStr += QString("count >= %1 ").arg(minCount);
+    }
+
+    if (!idText.isEmpty()) {
+        if (!filterStr.isEmpty()) filterStr += "AND ";
+        filterStr += QString("id = %1").arg(idText.toInt());
+    }
+
+    model->setFilter(filterStr);
+    model->select();
+}
+
 void MainWindow::addRectangle()
 {
-    // Располагаем фигуры со сдвигом, чтобы они не накладывались друг на друга
     int offset = scene->items().size() * 10;
     scene->addRect(50 + offset, 50 + offset, 100, 60, QPen(Qt::black), QBrush(Qt::cyan));
     addShapeToDb("Прямоугольник");
