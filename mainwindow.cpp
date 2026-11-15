@@ -102,10 +102,10 @@ void MainWindow::setupUI()
     tableView = new QTableView();
     tableView->horizontalHeader()->setStretchLastSection(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    tableView->setSelectionMode(QAbstractItemView::MultiSelection); // Разрешаем выбирать 2+ строки
+    tableView->setSelectionMode(QAbstractItemView::MultiSelection);
 
     btnDelete = new QPushButton("Удалить выбранное");
-    btnLink = new QPushButton("Связать выбранные"); // Кнопка связи
+    btnLink = new QPushButton("Связать выбранные");
 
     QHBoxLayout *btnLayout = new QHBoxLayout();
     btnLayout->addWidget(btnDelete);
@@ -202,21 +202,41 @@ void MainWindow::applyFilter()
     model->select();
 }
 
+// ==========================================
+// ОБНОВЛЕННАЯ ФУНКЦИЯ УДАЛЕНИЯ
+// ==========================================
 void MainWindow::deleteSelected()
 {
     QModelIndexList selected = tableView->selectionModel()->selectedRows();
     if (selected.isEmpty()) return;
 
     int row = selected.first().row();
-    int id = model->data(model->index(row, 0)).toInt();
+    int idToDelete = model->data(model->index(row, 0)).toInt();
 
+    // 1. Очищаем связи у всех фигур, которые были связаны с удаляемой
+    QSqlQuery clearQuery;
+    clearQuery.exec("SELECT id, connections FROM shapes");
+    while (clearQuery.next()) {
+        int otherId = clearQuery.value(0).toInt();
+        QString connStr = clearQuery.value(1).toString();
+        if (connStr == QString::number(idToDelete)) {
+            QSqlQuery updateQuery;
+            updateQuery.prepare("UPDATE shapes SET connections = '' WHERE id = :id");
+            updateQuery.bindValue(":id", otherId);
+            updateQuery.exec();
+        }
+    }
+
+    // 2. Удаляем саму фигуру
     QSqlQuery query;
     query.prepare("DELETE FROM shapes WHERE id = :id");
-    query.bindValue(":id", id);
+    query.bindValue(":id", idToDelete);
 
     if (query.exec()) {
         model->select();
         applyFilter();
+        // Очищаем холст, чтобы визуально линия исчезла
+        scene->clear(); 
     }
 }
 
@@ -230,18 +250,10 @@ void MainWindow::linkSelected()
 
     int row1 = selected[0].row();
     int row2 = selected[1].row();
-
     int id1 = model->data(model->index(row1, 0)).toInt();
     int id2 = model->data(model->index(row2, 0)).toInt();
 
-    updateLinksInDb(id1, id2);
-}
-
-void MainWindow::updateLinksInDb(int id1, int id2)
-{
     QSqlQuery query;
-
-    // 1. Обновляем связи в БД (просто перезаписываем поле connections для обоих)
     query.prepare("UPDATE shapes SET connections = :conn WHERE id = :id");
     query.bindValue(":conn", QString::number(id2));
     query.bindValue(":id", id1);
@@ -251,15 +263,8 @@ void MainWindow::updateLinksInDb(int id1, int id2)
     query.bindValue(":id", id2);
     query.exec();
 
-    // 2. Обновляем таблицу
     model->select();
-
-    // 3. Рисуем линию на холсте
-    // Чтобы нарисовать линию, нам нужны координаты. Так как мы их не храним, 
-    // нарисуем линию просто в произвольном месте (для демонстрации).
-    // В реальном проекте здесь нужно было бы брать координаты фигур.
     scene->addLine(100, 100, 300, 300, QPen(Qt::red, 2));
-
     QMessageBox::information(this, "Успех", "Связь между фигурами создана!");
 }
 
